@@ -330,9 +330,12 @@
                 </div>
             </div>
 
-            <div id="game-filters" hidden class="flex flex-wrap items-center gap-2 w-full">
+            <div id="game-filters" class="flex flex-wrap items-center gap-2 w-full">
                 <span class="text-xs text-gray-400 font-bold ml-2">الألعاب:</span>
                 <span id="game-pills" class="contents"></span>
+                <button id="manage-games-btn" type="button" class="pill flex items-center gap-1.5" aria-label="إدارة الألعاب">
+                    <span data-icon="pen" data-cls="w-3.5 h-3.5"></span> إدارة الألعاب
+                </button>
             </div>
         </section>
 
@@ -474,9 +477,11 @@
                         <input type="text" id="input-code" required maxlength="20" placeholder="مثال: #ER1" class="field font-code" dir="ltr">
                     </div>
                     <div class="sm:col-span-2">
-                        <label for="input-game-name" class="block text-xs font-bold text-gray-300 mb-1">🎮 اسم اللعبة (اختياري)</label>
-                        <input type="text" id="input-game-name" list="game-list" maxlength="60" placeholder="مثال: Valorant, GTA V..." class="field">
-                        <datalist id="game-list"></datalist>
+                        <div class="flex items-center justify-between mb-1">
+                            <label for="input-game-name" class="block text-xs font-bold text-gray-300">🎮 اللعبة (اختياري)</label>
+                            <button type="button" id="form-manage-games" class="text-[11px] text-twitch-purpleLight hover:text-white underline">+ إضافة / إدارة الألعاب</button>
+                        </div>
+                        <select id="input-game-name" class="field"></select>
                     </div>
                 </div>
 
@@ -541,6 +546,26 @@
                 </form>
                 <ul id="cats-list" class="space-y-2"></ul>
                 <p class="text-[11px] text-gray-500">عند حذف فئة، تبقى الشارات التابعة لها وتظهر بدون فئة.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Games Manager Modal -->
+    <div id="games-modal" class="modal fixed inset-0 z-[55] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" hidden role="dialog" aria-modal="true">
+        <div class="ios-glass w-full max-w-md rounded-3xl border border-white/20 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between bg-black/40">
+                <h3 class="text-lg font-bold text-white">🎮 إدارة الألعاب</h3>
+                <button type="button" id="games-close" aria-label="إغلاق" class="w-8 h-8 rounded-full text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all">
+                    <span data-icon="x" data-cls="w-5 h-5"></span>
+                </button>
+            </div>
+            <div class="p-5 space-y-4 overflow-y-auto">
+                <form id="game-form" class="flex items-center gap-2">
+                    <input type="text" id="game-name-new" maxlength="60" required placeholder="اسم اللعبة (مثال: Valorant)" class="field">
+                    <button type="submit" class="ios-button px-4 py-2.5 rounded-2xl text-xs font-bold text-white bg-twitch-purple hover:bg-twitch-purpleDark flex-shrink-0">إضافة</button>
+                </form>
+                <ul id="games-list" class="space-y-2"></ul>
+                <p class="text-[11px] text-gray-500">عند حذف لعبة، تُزال من الشارات المرتبطة بها وتبقى الشارات نفسها.</p>
             </div>
         </div>
     </div>
@@ -670,6 +695,24 @@
 
     /* ---------- State ---------- */
     let badges = loadBadges();
+
+    /* ---------- Managed games list ---------- */
+    const GAME_KEY = 'twitch_badges_games_v1';
+    function loadGames() {
+        try {
+            const raw = localStorage.getItem(GAME_KEY);
+            if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) return p; }
+        } catch (e) { /* ignore */ }
+        // first run: build the list from games already typed on badges
+        const set = new Set();
+        badges.forEach(b => { if (b.gameName && b.gameName.trim()) set.add(b.gameName.trim()); });
+        return Array.from(set);
+    }
+    let games = loadGames();
+    function saveGames() {
+        try { localStorage.setItem(GAME_KEY, JSON.stringify(games)); return true; }
+        catch (e) { toast('تعذر حفظ الألعاب: مساحة التخزين ممتلئة.', true); return false; }
+    }
     let selectedBadgeIds = new Set();
     let isSelectMode = false;
     let statusFilter = 'all';
@@ -764,18 +807,17 @@
             categories.map(c => '<button class="pill" data-category="' + esc(c.id) + '" type="button">' + esc(c.label) + '</button>').join('');
     }
 
-    function gameList() {
-        const set = new Set();
-        badges.forEach(b => { if (b.gameName && b.gameName.trim()) set.add(b.gameName.trim()); });
-        return Array.from(set).sort((a, b) => a.localeCompare(b));
-    }
     function renderGamePills() {
-        const games = gameList();
         if (gameFilter !== 'all' && !games.includes(gameFilter)) gameFilter = 'all';
-        $('game-filters').hidden = games.length === 0;
         $('game-pills').innerHTML = '<button class="pill" data-game="all" type="button">الكل</button>' +
             games.map(g => '<button class="pill" data-game="' + esc(g) + '" type="button">🎮 ' + esc(g) + '</button>').join('');
-        $('game-list').innerHTML = games.map(g => '<option value="' + esc(g) + '"></option>').join('');
+    }
+    function fillGameSelect(current) {
+        const list = games.slice();
+        if (current && !list.includes(current)) list.push(current);
+        $('input-game-name').innerHTML = '<option value="">— بدون لعبة —</option>' +
+            list.map(g => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('');
+        $('input-game-name').value = current || '';
     }
 
     /* ---------- Rendering ---------- */
@@ -933,6 +975,7 @@
         $('badge-form').reset();
         currentUploadedImg = b ? (b.imageUrl && b.imageUrl.startsWith('data:') ? b.imageUrl : '') : '';
         $('input-category').innerHTML = categories.map(c => '<option value="' + c.id + '">' + c.label + '</option>').join('');
+        fillGameSelect(b ? (b.gameName || '') : '');
         $('badge-id').value = b ? b.id : '';
         $('modal-title').textContent = b ? 'تعديل الشارة' : 'إضافة شارة جديدة';
         $('delete-btn').hidden = !b;
@@ -942,7 +985,6 @@
             $('input-code').value = b.code;
             $('input-status').value = b.status;
             $('input-category').value = b.category;
-            $('input-game-name').value = b.gameName || '';
             $('input-image-url').value = (b.imageUrl && !b.imageUrl.startsWith('data:')) ? b.imageUrl : '';
             $('input-req-text').value = b.reqText || '';
             $('input-description').value = b.description || '';
@@ -1144,6 +1186,69 @@
         render();
     });
 
+    /* ---------- Games manager ---------- */
+    function renderGamesList() {
+        $('games-list').innerHTML = games.length ? games.map((g, i) => {
+            const count = badges.filter(b => b.gameName === g).length;
+            return '<li class="flex items-center justify-between gap-3 bg-black/30 border border-white/10 rounded-2xl px-3 py-2.5">' +
+                '<div class="flex items-center gap-2.5 min-w-0">' +
+                    '<span>🎮</span>' +
+                    '<span class="text-sm font-bold text-white truncate">' + esc(g) + '</span>' +
+                    '<span class="text-[11px] text-gray-500 font-code">(' + count + ')</span>' +
+                '</div>' +
+                '<button type="button" data-del-game="' + i + '" aria-label="حذف اللعبة" class="p-1.5 rounded-lg text-twitch-neonRed hover:bg-twitch-neonRed/15">' + svg('trash', 'w-4 h-4') + '</button>' +
+            '</li>';
+        }).join('') : '<li class="text-xs text-gray-400 text-center py-4">لا توجد ألعاب. أضف لعبة جديدة من الأعلى.</li>';
+    }
+    function openGames() {
+        renderGamesList();
+        $('games-modal').hidden = false;
+        setTimeout(() => $('game-name-new').focus(), 50);
+    }
+    function closeGames() { $('games-modal').hidden = true; }
+    function refreshGameUI() {
+        renderGamePills();
+        if (!$('badge-modal').hidden) fillGameSelect($('input-game-name').value);
+        render();
+    }
+
+    $('manage-games-btn').addEventListener('click', openGames);
+    $('form-manage-games').addEventListener('click', openGames);
+    $('games-close').addEventListener('click', closeGames);
+    $('games-modal').addEventListener('mousedown', e => { if (e.target === e.currentTarget) closeGames(); });
+
+    $('game-form').addEventListener('submit', e => {
+        e.preventDefault();
+        const name = $('game-name-new').value.trim();
+        if (!name) return;
+        if (games.some(g => g.toLowerCase() === name.toLowerCase())) { toast('هذه اللعبة موجودة مسبقاً.', true); return; }
+        const prev = games;
+        games = games.concat([name]);
+        if (!saveGames()) { games = prev; return; }
+        $('game-name-new').value = '';
+        renderGamesList();
+        refreshGameUI();
+        toast('تمت إضافة اللعبة');
+    });
+
+    $('games-list').addEventListener('click', e => {
+        const btn = e.target.closest('[data-del-game]');
+        if (!btn) return;
+        const name = games[Number(btn.dataset.delGame)];
+        if (name === undefined) return;
+        const count = badges.filter(b => b.gameName === name).length;
+        askConfirm('حذف اللعبة', 'سيتم حذف "' + name + '"' + (count ? ' وإزالتها من ' + count + ' شارة' : '') + '. هل أنت متأكد؟', () => {
+            const prevG = games, prevB = badges;
+            games = games.filter(g => g !== name);
+            badges = badges.map(b => b.gameName === name ? Object.assign({}, b, { gameName: '' }) : b);
+            if (!saveGames() || !persist()) { games = prevG; badges = prevB; return; }
+            if ($('input-game-name').value === name) $('input-game-name').value = '';
+            renderGamesList();
+            refreshGameUI();
+            toast('تم حذف اللعبة');
+        });
+    });
+
     /* ---------- Categories manager ---------- */
     function renderCatsList() {
         $('cats-list').innerHTML = categories.length ? categories.map(c => {
@@ -1267,6 +1372,7 @@
         if (e.key !== 'Escape') return;
         if (!$('confirm-modal').hidden) { closeConfirm(); return; }
         if (!$('cats-modal').hidden) { closeCats(); return; }
+        if (!$('games-modal').hidden) { closeGames(); return; }
         if (!$('badge-modal').hidden) { closeForm(); return; }
         if (!$('badge-detail-modal').hidden) { closeDetail(); return; }
         if (isSelectMode) setSelectMode(false);

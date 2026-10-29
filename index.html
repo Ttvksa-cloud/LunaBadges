@@ -160,6 +160,11 @@
     #badge-detail-modal[data-status] #detail-code { color: rgb(var(--st)); }
     #badge-detail-modal[data-status] .ios-button { background: rgb(var(--st)); color: var(--stt); }
 
+    .thumb-btn { width: 3.25rem; height: 3.25rem; border-radius: 0.9rem; background: rgba(0,0,0,0.55); border: 2px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; transition: all 0.2s; cursor: pointer; }
+    .thumb-btn:hover { border-color: rgba(255,255,255,0.45); }
+    .thumb-btn[aria-pressed="true"] { border-color: rgb(var(--st, 169, 112, 255)); box-shadow: 0 0 14px rgba(var(--st, 169, 112, 255), 0.55); }
+    .img-count { position: absolute; bottom: -6px; left: -6px; background: #08070d; color: #fff; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.35); }
+
     .view-btn { color: #9ca3af; }
     .view-btn:hover { color: #fff; }
     .view-btn[aria-pressed="true"] { background: var(--accent); color: #fff; box-shadow: 0 0 14px var(--accent-glow); }
@@ -396,6 +401,7 @@
             <div class="p-6 space-y-5 overflow-y-auto">
                 <div class="flex flex-col items-center justify-center p-6 rounded-3xl badge-display-frame relative overflow-hidden group">
                     <div id="detail-image-box" class="w-24 h-24 rounded-2xl flex items-center justify-center bg-black/60 border border-twitch-purple/40 shadow-badge-glow transition-transform duration-300 group-hover:scale-110"></div>
+                    <div id="detail-thumbs" class="flex flex-wrap items-center justify-center gap-2.5 mt-4" hidden></div>
                     <span class="text-[11px] text-gray-400 mt-3 font-code tracking-wider uppercase">معاينة صورة الشارة</span>
                 </div>
 
@@ -454,17 +460,10 @@
 
                 <div class="p-4 rounded-2xl bg-twitch-purple/10 border border-twitch-purple/30 space-y-3">
                     <label class="block text-xs font-bold text-twitch-purpleLight flex items-center gap-1.5">
-                        <span data-icon="star" data-cls="w-4 h-4"></span> صورة البادج (رفع ملف من الجهاز أو وضع رابط)
+                        <span data-icon="star" data-cls="w-4 h-4"></span> صور البادج (حتى 5 صور — ارفع من الجهاز أو ضع رابط)
                     </label>
-                    <div class="flex items-center gap-4">
-                        <div id="form-image-preview" class="w-16 h-16 rounded-2xl bg-black/60 border border-white/20 flex-shrink-0 flex items-center justify-center overflow-hidden p-1 shadow-md"></div>
-                        <div class="flex-grow space-y-2 min-w-0">
-                            <input type="file" id="input-image-file" accept="image/*" class="block w-full text-xs text-gray-400 file:ml-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-twitch-purple file:text-white hover:file:bg-twitch-purpleDark cursor-pointer">
-                            <input type="url" id="input-image-url" placeholder="أو انسخ رابط الصورة مباشرة هنا (https://...)" class="field text-xs font-code" dir="ltr">
-                            <button type="button" id="clear-image-btn" class="text-[11px] text-gray-400 hover:text-twitch-neonRed underline">إزالة الصورة</button>
-                        </div>
-                    </div>
-                    <p class="text-[11px] text-gray-500">يتم تصغير الصور المرفوعة تلقائياً لتوفير مساحة التخزين.</p>
+                    <div id="image-slots" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div>
+                    <p class="text-[11px] text-gray-500">الصورة الأولى هي الأساسية وتظهر على الكرت. يتم تصغير الصور المرفوعة تلقائياً لتوفير مساحة التخزين.</p>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -722,7 +721,9 @@
     let viewMode = 'grid';
     try { const v = localStorage.getItem(VIEW_KEY); if (v === 'list' || v === 'grid') viewMode = v; } catch (e) {}
     let detailId = null;
-    let currentUploadedImg = '';
+    const MAX_IMAGES = 5;
+    let formImages = new Array(MAX_IMAGES).fill('');
+    let detailImgIdx = 0;
     let confirmCallback = null;
 
     const $ = id => document.getElementById(id);
@@ -754,6 +755,15 @@
             img.replaceWith(holder.firstChild);
         }
     }, true);
+
+    function badgeImages(b) {
+        if (Array.isArray(b.images) && b.images.some(x => x && x.trim())) return b.images.filter(x => x && x.trim());
+        return b.imageUrl ? [b.imageUrl] : [];
+    }
+    function imgCountChip(b) {
+        const n = badgeImages(b).length;
+        return n > 1 ? '<span class="img-count">🖼 ' + n + '</span>' : '';
+    }
 
     function pad(n) { return String(n).padStart(2, '0'); }
     function formatRemaining(ms) {
@@ -836,7 +846,7 @@
             (isSelectMode ? '<input type="checkbox" data-select-id="' + esc(b.id) + '" ' + (isSelected ? 'checked' : '') + ' aria-label="تحديد" class="absolute top-3 left-3 w-5 h-5 accent-twitch-purple cursor-pointer z-10">' : '') +
             '<div>' +
                 '<div class="flex items-center justify-between gap-2 mb-3">' +
-                    '<div class="w-14 h-14 bg-black/60 rounded-2xl flex items-center justify-center border border-twitch-purple/30 group-hover:scale-110 transition-transform shadow-badge-glow">' + renderBadgeImage(b.imageUrl, 'w-10 h-10') + '</div>' +
+                    '<div class="relative w-14 h-14 bg-black/60 rounded-2xl flex items-center justify-center border border-twitch-purple/30 group-hover:scale-110 transition-transform shadow-badge-glow">' + renderBadgeImage(badgeImages(b)[0], 'w-10 h-10') + imgCountChip(b) + '</div>' +
                     '<div class="flex flex-col items-end gap-1">' +
                         '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold border ' + st.cls + '">' + st.label + '</span>' +
                         '<span class="font-code text-xs text-gray-400 bg-black/40 px-2 py-0.5 rounded-md border border-white/10" dir="ltr">' + esc(b.code) + '</span>' +
@@ -861,7 +871,7 @@
         '<div data-open="' + esc(b.id) + '" class="badge-card status-' + esc(b.status) + ' ios-glass rounded-2xl p-3.5 flex items-center justify-between gap-4 cursor-pointer ' + (isSelected ? 'selected' : '') + '">' +
             '<div class="flex items-center gap-3 min-w-0">' +
                 (isSelectMode ? '<input type="checkbox" data-select-id="' + esc(b.id) + '" ' + (isSelected ? 'checked' : '') + ' aria-label="تحديد" class="w-5 h-5 accent-twitch-purple cursor-pointer">' : '') +
-                '<div class="w-12 h-12 bg-black/50 rounded-xl flex items-center justify-center border border-twitch-purple/30 flex-shrink-0 shadow-md">' + renderBadgeImage(b.imageUrl, 'w-8 h-8') + '</div>' +
+                '<div class="relative w-12 h-12 bg-black/50 rounded-xl flex items-center justify-center border border-twitch-purple/30 flex-shrink-0 shadow-md">' + renderBadgeImage(badgeImages(b)[0], 'w-8 h-8') + imgCountChip(b) + '</div>' +
                 '<div class="min-w-0">' +
                     '<h3 class="font-bold text-white text-sm truncate">' + esc(b.title) + '</h3>' +
                     '<div class="flex items-center gap-2 flex-wrap">' +
@@ -936,6 +946,24 @@
     setInterval(tickTimers, 1000);
 
     /* ---------- Detail modal ---------- */
+    function renderDetailImages(b) {
+        const imgs = badgeImages(b);
+        if (detailImgIdx >= imgs.length) detailImgIdx = 0;
+        $('detail-image-box').innerHTML = renderBadgeImage(imgs[detailImgIdx], 'w-16 h-16');
+        const t = $('detail-thumbs');
+        t.hidden = imgs.length < 2;
+        t.innerHTML = imgs.length < 2 ? '' : imgs.map((u, i) =>
+            '<button type="button" class="thumb-btn" data-thumb="' + i + '" aria-pressed="' + (i === detailImgIdx) + '" aria-label="صورة ' + (i + 1) + '">' + renderBadgeImage(u, 'w-9 h-9') + '</button>').join('');
+    }
+    $('detail-thumbs').addEventListener('click', e => {
+        const btn = e.target.closest('[data-thumb]');
+        if (!btn) return;
+        const b = badges.find(x => x.id === detailId);
+        if (!b) return;
+        detailImgIdx = Number(btn.dataset.thumb);
+        renderDetailImages(b);
+    });
+
     function openDetail(id) {
         const b = badges.find(x => x.id === id);
         if (!b) return;
@@ -946,7 +974,8 @@
         $('detail-title').textContent = b.title;
         $('detail-code').textContent = b.code;
         $('detail-desc').textContent = b.description || 'لا يوجد شرح مضاف.';
-        $('detail-image-box').innerHTML = renderBadgeImage(b.imageUrl, 'w-16 h-16');
+        detailImgIdx = 0;
+        renderDetailImages(b);
 
         const statusEl = $('detail-status');
         statusEl.textContent = st.label;
@@ -973,7 +1002,8 @@
     /* ---------- Add / Edit modal ---------- */
     function openBadgeModal(b) {
         $('badge-form').reset();
-        currentUploadedImg = b ? (b.imageUrl && b.imageUrl.startsWith('data:') ? b.imageUrl : '') : '';
+        formImages = new Array(MAX_IMAGES).fill('');
+        if (b) badgeImages(b).slice(0, MAX_IMAGES).forEach((u, i) => { formImages[i] = u; });
         $('input-category').innerHTML = categories.map(c => '<option value="' + c.id + '">' + c.label + '</option>').join('');
         fillGameSelect(b ? (b.gameName || '') : '');
         $('badge-id').value = b ? b.id : '';
@@ -985,21 +1015,37 @@
             $('input-code').value = b.code;
             $('input-status').value = b.status;
             $('input-category').value = b.category;
-            $('input-image-url').value = (b.imageUrl && !b.imageUrl.startsWith('data:')) ? b.imageUrl : '';
             $('input-req-text').value = b.reqText || '';
             $('input-description').value = b.description || '';
             $('input-ends').value = b.endsAt ? toLocalInputValue(b.endsAt) : '';
         }
 
-        updateModalImagePreview();
+        renderImageSlots();
         $('badge-modal').hidden = false;
         setTimeout(() => $('input-title').focus(), 50);
     }
     function closeForm() { $('badge-modal').hidden = true; }
 
-    function updateModalImagePreview() {
-        const url = $('input-image-url').value.trim() || currentUploadedImg;
-        $('form-image-preview').innerHTML = renderBadgeImage(url, 'w-12 h-12');
+    function slotPreview(url) {
+        return url ? renderBadgeImage(url, 'w-12 h-12') : '<span class="text-gray-500">' + svg('plus', 'w-6 h-6') + '</span>';
+    }
+    function renderImageSlots() {
+        $('image-slots').innerHTML = formImages.map((u, i) => {
+            const isData = u && u.startsWith('data:');
+            return '<div class="rounded-2xl bg-black/30 border border-white/10 p-2.5 space-y-2" data-slot="' + i + '">' +
+                '<div class="flex items-center justify-between text-[10px] font-bold text-gray-400"><span>' + (i === 0 ? '⭐ الرئيسية' : 'صورة ' + (i + 1)) + '</span>' +
+                    '<button type="button" data-clear class="hover:text-twitch-neonRed underline" ' + (u ? '' : 'hidden') + '>إزالة</button></div>' +
+                '<button type="button" data-pick aria-label="رفع صورة ' + (i + 1) + '" class="w-full h-16 rounded-xl bg-black/60 border border-dashed border-white/25 hover:border-twitch-purpleLight flex items-center justify-center overflow-hidden transition-colors"><span data-prev>' + slotPreview(u) + '</span></button>' +
+                '<input type="file" data-file accept="image/*" hidden>' +
+                '<input type="url" data-url placeholder="أو رابط https://" value="' + (isData ? '' : esc(u)) + '" class="field text-[11px] font-code !py-1.5 !px-2" dir="ltr">' +
+            '</div>';
+        }).join('');
+    }
+    function refreshSlot(i) {
+        const el = $('image-slots').querySelector('[data-slot="' + i + '"]');
+        if (!el) return;
+        el.querySelector('[data-prev]').innerHTML = slotPreview(formImages[i]);
+        el.querySelector('[data-clear]').hidden = !formImages[i];
     }
 
     // Downscale uploaded images to keep localStorage small
@@ -1025,37 +1071,47 @@
         });
     }
 
-    $('input-image-file').addEventListener('change', async e => {
-        const file = e.target.files[0];
+    $('image-slots').addEventListener('click', e => {
+        const slot = e.target.closest('[data-slot]');
+        if (!slot) return;
+        const i = Number(slot.dataset.slot);
+        if (e.target.closest('[data-pick]')) { slot.querySelector('[data-file]').click(); return; }
+        if (e.target.closest('[data-clear]')) {
+            formImages[i] = '';
+            slot.querySelector('[data-url]').value = '';
+            slot.querySelector('[data-file]').value = '';
+            refreshSlot(i);
+        }
+    });
+    $('image-slots').addEventListener('input', e => {
+        const inp = e.target.closest('[data-url]');
+        if (!inp) return;
+        const i = Number(inp.closest('[data-slot]').dataset.slot);
+        formImages[i] = inp.value.trim();
+        refreshSlot(i);
+    });
+    $('image-slots').addEventListener('change', async e => {
+        const inp = e.target.closest('[data-file]');
+        if (!inp) return;
+        const i = Number(inp.closest('[data-slot]').dataset.slot);
+        const file = inp.files[0];
         if (!file) return;
-        if (!file.type.startsWith('image/')) { toast('الرجاء اختيار ملف صورة صالح.', true); e.target.value = ''; return; }
+        if (!file.type.startsWith('image/')) { toast('الرجاء اختيار ملف صورة صالح.', true); inp.value = ''; return; }
         try {
-            currentUploadedImg = await compressImage(file, 256);
-            $('input-image-url').value = '';
-            updateModalImagePreview();
+            formImages[i] = await compressImage(file, 256);
+            inp.closest('[data-slot]').querySelector('[data-url]').value = '';
+            refreshSlot(i);
         } catch (err) {
             toast('تعذر قراءة الصورة، جرّب ملفاً آخر.', true);
         }
-        e.target.value = '';
-    });
-
-    $('input-image-url').addEventListener('input', () => {
-        if ($('input-image-url').value.trim()) currentUploadedImg = '';
-        updateModalImagePreview();
-    });
-
-    $('clear-image-btn').addEventListener('click', () => {
-        currentUploadedImg = '';
-        $('input-image-url').value = '';
-        $('input-image-file').value = '';
-        updateModalImagePreview();
+        inp.value = '';
     });
 
     $('badge-form').addEventListener('submit', e => {
         e.preventDefault();
         const id = $('badge-id').value;
-        const url = $('input-image-url').value.trim();
-        if (url && !/^https?:\/\//i.test(url)) { toast('رابط الصورة يجب أن يبدأ بـ http:// أو https://', true); return; }
+        const images = formImages.map(u => (u || '').trim()).filter(Boolean);
+        if (images.some(u => !u.startsWith('data:') && !/^https?:\/\//i.test(u))) { toast('روابط الصور يجب أن تبدأ بـ http:// أو https://', true); return; }
 
         let code = $('input-code').value.trim();
         if (code && !code.startsWith('#')) code = '#' + code;
@@ -1070,7 +1126,8 @@
             status: $('input-status').value,
             category: $('input-category').value,
             gameName: $('input-game-name').value.trim(),
-            imageUrl: url || currentUploadedImg,
+            images: images,
+            imageUrl: images[0] || '',
             reqText: $('input-req-text').value.trim(),
             description: $('input-description').value.trim(),
             endsAt: (endsAt && !isNaN(endsAt)) ? endsAt : null
